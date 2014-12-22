@@ -109,10 +109,14 @@ impl Buffer {
             Direction::Up => { self.move_line(-1); }
             Direction::Down => { self.move_line(1); }
             Direction::Left if self.cursor > 0 => {
-                self.cursor -= 1;
+                if self.text[self.cursor-1] != '\n' {
+                    self.cursor -= 1;
+                }
             }
             Direction::Right if self.cursor < self.text.len() => {
-                self.cursor += 1;
+                if self.text[self.cursor+1] != '\n' {
+                    self.cursor += 1;
+                }
             }
             _ => { }
         }
