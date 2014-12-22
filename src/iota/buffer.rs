@@ -90,6 +90,9 @@ impl Buffer {
             None => return,
         };
 
+        // if we are on the first line and moving up, return
+        if current_line_num == 0 && offset == -1 { return }
+
         let len = self.text.len() - 1;
         let last_line_num = match self.get_line(len) {
             Some(n) => n as int,
