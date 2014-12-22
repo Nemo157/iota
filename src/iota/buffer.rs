@@ -61,7 +61,7 @@ impl Buffer {
     }
 
     //Returns the number of newlines in the buffer before the mark.
-    fn get_line(&self, mark: uint) -> Option<uint> {
+    pub fn get_line(&self, mark: uint) -> Option<uint> {
         let mut linenum = 0;
         if mark < self.text.len() {
             for c in self.text[0..mark].iter() {
@@ -71,6 +71,7 @@ impl Buffer {
         } else { None }
     }
     
+    // get the number of chars before the start of the line identified by `ln`
     fn get_line_idx(&self, ln: int) -> Option<uint> {
         let mut linenum = 0;
         for (index, ch) in self.text.iter().enumerate() {

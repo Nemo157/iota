@@ -1,8 +1,6 @@
 use rustbox::RustBox;
 
-pub fn draw_cursor(rb: &RustBox, x: uint, y: uint) {
-    let x = x.to_int().unwrap();
-    let y = y.to_int().unwrap();
+pub fn draw_cursor(rb: &RustBox, x: int, y: int) {
     rb.set_cursor(x, y);
 }
 

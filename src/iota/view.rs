@@ -113,7 +113,7 @@ impl<'v> View<'v> {
 
         for (total_offset, ch) in self.buffer.text.iter().enumerate() {
             if total_offset == self.buffer.cursor {
-                utils::draw_cursor(rb, offset, line_num-self.top_line_num);
+                utils::draw_cursor(rb, offset as int, (line_num-self.top_line_num) as int);
             }
             if line_num >= self.top_line_num {
                 if line_num < end_line {
@@ -211,16 +211,13 @@ impl<'v> View<'v> {
 
     // TODO(greg): refactor this method with move_cursor_up
     pub fn move_cursor_down(&mut self) {
-        let cursor_linenum = self.cursor().get_linenum();
-        let next_linenum = cursor_linenum + 1;
+        let cursor_linenum = self.buffer.get_line(self.buffer.cursor).unwrap();
+        let next_linenum = cursor_linenum+1;
 
-        let num_lines = self.buffer.lines.len() - 1;
-        if next_linenum > num_lines { return }
 
-        self.set_cursor_line(next_linenum);
+        self.buffer.shift_cursor(Direction::Down);
 
-        let cursor_linenum = self.cursor().get_linenum() as int;
-        let cursor_offset = cursor_linenum - self.top_line_num as int;
+        let cursor_offset = next_linenum as int - self.top_line_num as int;
         let height = self.get_height() as int;
 
         if cursor_offset >= (height - self.threshold) {
