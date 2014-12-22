@@ -58,7 +58,7 @@ impl<'v> View<'v> {
             Input::Filename(path) => {
                 match path {
                     Some(s) => Buffer::new_from_file(Path::new(s)),
-                    None    => Buffer::new_empty(),
+                    None    => Buffer::new(),
                 }
             },
             Input::Stdin(reader) => {
@@ -107,12 +107,24 @@ impl<'v> View<'v> {
 
     pub fn draw(&mut self, rb: &RustBox) {
         let end_line = self.get_height();
-        let num_lines = self.buffer.lines.len();
-        let lines_to_draw = self.buffer.lines.slice(self.top_line_num, num_lines);
 
-        for (index, line) in lines_to_draw.iter().enumerate() {
-            if index < end_line {
-                draw_line(&mut self.uibuf, line, self.top_line_num)
+        let mut line_num = 0;
+        let mut offset = 0;
+
+        for (total_offset, ch) in self.buffer.text.iter().enumerate() {
+            if total_offset == self.buffer.cursor {
+                utils::draw_cursor(rb, offset, line_num-self.top_line_num);
+            }
+            if line_num >= self.top_line_num {
+                if line_num < end_line {
+                    if *ch == '\n' {
+                        offset = 0;
+                        line_num += 1;
+                    } else {
+                        let index = line_num - self.top_line_num;
+                        offset = draw_char(&mut self.uibuf, ch, offset, index, self.top_line_num);
+                    }
+                }
             }
         }
 
@@ -121,8 +133,7 @@ impl<'v> View<'v> {
 
     pub fn draw_status(&mut self, rb: &RustBox) {
         let buffer_status = self.buffer.get_status_text();
-        let cursor_status = self.cursor().get_status_text();
-        let status_text = format!("{} {}", buffer_status, cursor_status).into_bytes();
+        let status_text = format!("{}", buffer_status).into_bytes();
         let status_text_len = status_text.len();
         let width = self.get_width();
         let height = self.get_height();
@@ -139,13 +150,6 @@ impl<'v> View<'v> {
         self.uibuf.draw_range(rb, height, height+1);
     }
 
-    pub fn draw_cursor(&mut self, rb: &RustBox) {
-        let offset = self.cursor().get_visible_offset();
-        let linenum = self.cursor().get_linenum();
-
-        utils::draw_cursor(rb, offset, linenum-self.top_line_num);
-    }
-
     pub fn resize(&mut self, rb: &RustBox) {
         let width = self.uibuf.get_width();
         self.clear(rb);
@@ -154,10 +158,11 @@ impl<'v> View<'v> {
 
     pub fn move_cursor(&mut self, direction: Direction) {
         match direction {
-            Direction::Up    => { self.move_cursor_up(); },
-            Direction::Down  => { self.move_cursor_down(); },
-            Direction::Right => { self.move_cursor_right(); },
-            Direction::Left  => { self.cursor().move_left(); },
+            // FIXME: move this to the editor module
+            Direction::Up    => { self.buffer.shift_cursor(Direction::Up); },
+            Direction::Down  => { self.buffer.shift_cursor(Direction::Down); },
+            Direction::Right => { self.buffer.shift_cursor(Direction::Right); },
+            Direction::Left  => { self.buffer.shift_cursor(Direction::Left); },
         }
     }
 
@@ -170,12 +175,15 @@ impl<'v> View<'v> {
     }
 
     fn move_cursor_right(&mut self) {
-        let cursor_offset = self.cursor().get_visible_offset();
-        let next_offset = cursor_offset + 1;
+        // let cursor_offset = self.cursor().get_visible_offset();
+        // let next_offset = cursor_offset + 1;
         let width = self.get_width() - 1;
 
+        let cursor_offset = self.buffer.get_cursor_screen_offset();
+        let next_offset = cursor_offset + 1;
         if next_offset < width {
-            self.cursor().move_right()
+            // self.cursor().move_right()
+            self.buffer.shift_cursor(Direction::Right);
         }
     }
 
@@ -260,29 +268,30 @@ impl<'v> View<'v> {
     }
 
     pub fn delete_char(&mut self, direction: Direction) {
-        let (offset, line_num) = self.cursor().get_position();
+        // let (offset, line_num) = self.cursor().get_position();
 
-        if offset == 0 && direction.is_left() {
-            // Must move the cursor up first so we aren't pointing at dangling memory
-            self.move_cursor_up();
-            let offset = self.buffer.join_line_with_previous(offset, line_num);
-            self.cursor().set_offset(offset);
-            return
-        }
+        // if offset == 0 && direction.is_left() {
+        //     // Must move the cursor up first so we aren't pointing at dangling memory
+        //     self.move_cursor_up();
+        //     let offset = self.buffer.join_line_with_previous(offset, line_num);
+        //     self.cursor().set_offset(offset);
+        //     return
+        // }
 
-        let line_len = self.cursor().get_line_length();
-        if offset == line_len && direction.is_right() {
-            // try to join the next line with the current line
-            // if there is no next line, nothing will happen
-            self.buffer.join_line_with_previous(offset, line_num+1);
-            return
-        }
+        // let line_len = self.cursor().get_line_length();
+        // if offset == line_len && direction.is_right() {
+        //     // try to join the next line with the current line
+        //     // if there is no next line, nothing will happen
+        //     self.buffer.join_line_with_previous(offset, line_num+1);
+        //     return
+        // }
 
-        match direction {
-            Direction::Left  => self.cursor().delete_backward_char(),
-            Direction::Right => self.cursor().delete_forward_char(),
-            _                => {}
-        }
+        // match direction {
+        //     Direction::Left  => self.cursor().delete_backward_char(),
+        //     Direction::Right => self.cursor().delete_forward_char(),
+        //     _                => {}
+        // }
+        self.buffer.delete_char(direction);
     }
 
     pub fn insert_tab(&mut self) {
@@ -293,46 +302,35 @@ impl<'v> View<'v> {
     }
 
     pub fn insert_char(&mut self, ch: char) {
-        self.cursor().insert_char(ch);
-    }
-
-    pub fn insert_line(&mut self) {
-        let (offset, line_num) = self.cursor().get_position();
-        self.buffer.insert_line(offset, line_num);
-
-        self.move_cursor_down();
-        self.cursor().set_offset(0);
+        self.buffer.insert_char(ch);
     }
 }
 
-pub fn draw_line(buf: &mut UIBuffer, line: &Line, top_line_num: uint) {
+pub fn draw_char(buf: &mut UIBuffer, ch: &char, mut offset: uint, index: uint, top_line_num: uint) -> uint{
     let width = buf.get_width() -1;
-    let index = line.linenum - top_line_num;
-    let mut internal_index = 0;
-    for ch in line.data.chars() {
-        if internal_index < width {
-            match ch {
-                '\t' => {
-                    let w = 4 - internal_index%4;
-                    for _ in range(0, w) {
-                        buf.update_cell_content(internal_index, index, ' ');
-                        internal_index += 1;
-                    }
-                }
-                _ => {
-                    // draw the character
-                    buf.update_cell_content(internal_index, index, ch);
-                    internal_index += ch.width(false).unwrap_or(1);
+    if offset < width {
+        match *ch {
+            '\t' => {
+                let w = 4 - offset%4;
+                for _ in range(0, w) {
+                    buf.update_cell_content(offset, index, ' ');
+                    offset += 1;
                 }
             }
-        }
-
-        // if the line is longer than the width of the view, draw a special char
-        if internal_index == width {
-            buf.update_cell_content(internal_index, index, '→');
-            break;
+            _ => {
+                // draw the character
+                buf.update_cell_content(offset, index, *ch);
+                offset += ch.width(false).unwrap_or(1);
+            }
         }
     }
+
+    // if the line is longer than the width of the view, draw a special char
+    if offset == width {
+        buf.update_cell_content(offset, index, '→');
+    }
+
+    offset
 }
 
 #[cfg(test)]

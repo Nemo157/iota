@@ -1,8 +1,15 @@
 use std::io::{File, Reader, BufferedReader};
 
+use gapbuffer::GapBuffer;
+
+use cursor::Direction;
+
 pub struct Buffer {
     pub file_path: Option<Path>,
     pub lines: Vec<Line>,
+
+    pub cursor: uint,
+    pub text: GapBuffer<char>,
 }
 
 impl Buffer {
@@ -11,124 +18,133 @@ impl Buffer {
         Buffer {
             file_path: None,
             lines: Vec::new(),
+            cursor: 0,
+            text: GapBuffer::new(),
         }
-    }
-
-    /// Create a new buffer with a single line
-    pub fn new_empty() -> Buffer {
-        let mut buffer = Buffer::new();
-        buffer.lines.push(Line::new(String::new(), 0));
-
-        buffer
-    }
-
-    fn lines_from_reader<R: Reader>(reader: &mut BufferedReader<R>) -> Vec<Line> {
-        let mut v = vec![];
-        // for every line in the reader we add a corresponding line to the buffer
-        for (index, line) in reader.lines().enumerate() {
-            let mut data = line.unwrap();
-            let last_index = data.len() - 1;
-            if data.is_char_boundary(last_index) && data.char_at(last_index) == '\n' {
-                data.pop();
-            }
-            v.push(Line::new(data.trim_right_chars('\n').into_string(), index));
-        }
-        v
     }
 
     pub fn new_from_reader<R: Reader>(reader: R) -> Buffer {
-        let mut r = BufferedReader::new(reader);
-        Buffer {
-            lines: Buffer::lines_from_reader(&mut r),
-            file_path: None
+        let mut buf = Buffer::new();
+        if let Ok(contents) = BufferedReader::new(reader).read_to_string() {
+            buf.text.extend(contents.chars());
         }
+        buf
     }
 
     /// Create a new buffer instance and load the given file
     pub fn new_from_file(path: Path) -> Buffer {
-        let mut buffer = Buffer::new();
-
         if let Ok(file) = File::open(&path) {
-            buffer.lines = Buffer::lines_from_reader(&mut BufferedReader::new(file));
+            let mut buffer = Buffer::new_from_reader(file);
+            buffer.file_path = Some(path);
+            buffer
         } else {
-            buffer.lines.push(Line::new(String::new(), 0));
+            Buffer::new()
         }
+    }
 
-        buffer.file_path = Some(path);
-        buffer
+    pub fn move_cursor(&mut self, offset: int) {
+        let idx = self.cursor as int + offset;
+        if 0 >= idx && idx > self.text.len() as int {
+            self.set_cursor(idx as uint);
+        }
+    }
+
+    pub fn set_cursor(&mut self, location: uint) {
+        self.cursor = location;
     }
 
     pub fn get_status_text(&self) -> String {
         match self.file_path {
-            Some(ref path) => format!("{}, lines: {}", path.display(), self.lines.len()),
-            None => format!("untitled, lines: {}", self.lines.len())
+            Some(ref path) => format!("{} {}", path.display(), self.cursor),
+            None => format!("untitled {}", self.cursor)
         }
     }
 
-    fn fix_linenums(&mut self) {
-        for (index, line) in self.lines.iter_mut().enumerate() {
-            line.linenum = index;
-        }
-    }
-
-    pub fn insert_line(&mut self, offset: uint, mut line_num: uint) {
-        // split the current line at the cursor position
-        let (_, new_data) = self.split_line(offset, line_num);
-        {
-            // truncate the current line
-            let line = self.get_line_at_mut(line_num);
-            line.unwrap().data.truncate(offset);
-        }
-
-        line_num += 1;
-
-        self.lines.insert(line_num, Line::new(new_data, line_num));
-
-        self.fix_linenums();
-    }
-
-    /// Join the line identified by `line_num` with the one at `line_num - 1 `.
-    pub fn join_line_with_previous(&mut self, offset: uint, line_num: uint) -> uint {
-        // if the line_num is 0 (ie the first line), don't do anything
-        if line_num == 0 { return offset }
-
-        let mut current_line_data: String;
-        {
-            let current_line = match self.get_line_at(line_num) {
-                Some(line) => line,
-                None => return offset,
-            };
-            current_line_data = current_line.data.clone();
-        }
-
-        // update the previous line
-        let new_cursor_offset = match self.get_line_at_mut(line_num -1) {
-            None => offset,
-            Some(line) => {
-                let line_len = line.data.len();
-                line.data.push_str(&*current_line_data);
-                line_len
+    //Returns the number of newlines in the buffer before the mark.
+    fn get_line(&self, mark: uint) -> Option<uint> {
+        let mut linenum = 0;
+        if mark < self.text.len() {
+            for c in self.text[0..mark].iter() {
+                if c == &'\n' { linenum += 1; }
             }
+            Some(linenum)
+        } else { None }
+    }
+    
+    fn get_line_idx(&self, ln: int) -> Option<uint> {
+        let mut linenum = 0;
+        for (index, ch) in self.text.iter().enumerate() {
+            if *ch == '\n' {
+                linenum += 1;
+            }
+            if linenum == ln {
+                return Some(index)
+            }
+        }
+        None
+    }
+
+    fn move_line(&mut self, offset: int) {
+        let current_line_num = match self.get_line(self.cursor) {
+            Some(n) => n as int,
+            None => return,
         };
 
-        self.lines.remove(line_num);
-        self.fix_linenums();
+        let len = self.text.len() - 1;
+        let last_line_num = match self.get_line(len) {
+            Some(n) => n as int,
+            None => return,
+        };
 
-        return new_cursor_offset
+        if current_line_num < last_line_num {
+            self.cursor = self.get_line_idx(current_line_num + offset).unwrap();
+            self.cursor += 1;
+        }
     }
 
-    /// Split the line identified by `line_num` at `offset`
-    fn split_line(&mut self, offset: uint, line_num: uint) -> (String, String) {
-        let line = self.get_line_at(line_num).unwrap();
 
-        let data = &line.data;
-        let old_data = data.slice_to(offset);
-        let new_data = data.slice_from(offset);
+    //Shift the cursor by one in any of the four directions.
+    pub fn shift_cursor(&mut self, direction: Direction) {
+        match direction {
+            Direction::Up => { self.move_line(-1); }
+            Direction::Down => { self.move_line(1); }
+            Direction::Left if self.cursor > 0 => {
+                self.cursor -= 1;
+            }
+            Direction::Right if self.cursor < self.text.len() => {
+                self.cursor += 1;
+            }
+            _ => { }
+        }
+    }
 
-        let mut new = String::new(); new.push_str(new_data);
-        let mut old = String::new(); old.push_str(old_data);
+    pub fn insert_char(&mut self, ch: char) {
+        self.text.insert(self.cursor, ch);
 
-        return (old, new)
+        // FIXME: see cursor.inc_offset
+        self.cursor += 1;
+    }
+
+    pub fn delete_char(&mut self, dir: Direction) {
+        if dir.is_left() {
+            if self.cursor == 0 { return }
+            // FIXME: see cursor.dev_offset
+            self.cursor -= 1;
+        }
+        self.text.remove(self.cursor);
+    }
+
+    /// Find out how far the cursor is from the start of the line
+    pub fn get_cursor_screen_offset(&self) -> uint {
+        if self.cursor == 0 { return 0 }
+
+        let text = self.text[0..self.cursor];
+        for (index, ch) in text.iter().rev().enumerate() {
+            if *ch == '\n' {
+                panic!("test {}", index)
+            }
+        }
+        return 0
     }
 
     fn get_line_at(&self, line_num: uint) -> Option<&Line> {

@@ -24,7 +24,6 @@ pub enum Command {
 
     Delete(Direction),
     InsertTab,
-    InsertLine,
     InsertChar(char)
 }
 
@@ -105,7 +104,8 @@ impl<'e> Editor<'e> {
     pub fn draw(&mut self) {
         self.view.draw(self.rb);
         self.view.draw_status(self.rb);
-        self.view.draw_cursor(self.rb);
+        // FIXME
+        // self.view.draw_cursor(self.rb);
     }
 
     pub fn start(&mut self) {
@@ -138,7 +138,6 @@ impl<'e> Editor<'e> {
             // Editing
             Command::Delete(dir)     => self.view.delete_char(dir),
             Command::InsertTab       => self.view.insert_tab(),
-            Command::InsertLine      => self.view.insert_line(),
             Command::InsertChar(c)   => self.view.insert_char(c)
         }
         Response::Continue

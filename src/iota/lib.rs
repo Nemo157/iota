@@ -1,7 +1,9 @@
 #![feature(unboxed_closures)]
 #![feature(unsafe_destructor)]
+#![feature(slicing_syntax)]
 
 extern crate rustbox;
+extern crate gapbuffer;
 
 pub use editor::Editor;
 pub use input::Input;

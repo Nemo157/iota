@@ -9,6 +9,9 @@ docopt = "0.6.16"
 [dependencies.rustbox]
 git = "https://github.com/gchp/rustbox"
 
+[dependencies.gapbuffer]
+git = "https://github.com/dlaronson/gapbuffer"
+
 [lib]
 name = "iota"
 path = "src/iota/lib.rs"
